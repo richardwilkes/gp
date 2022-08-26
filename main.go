@@ -69,6 +69,9 @@ func main() {
 	longest := 0
 	for p := range set {
 		list = append(list, p)
+		if len(paths) == 1 {
+			p = filepath.Base(p)
+		}
 		if longest < len(p) {
 			longest = len(p)
 		}
@@ -91,6 +94,9 @@ func main() {
 			printer: printer,
 			row:     i + 1,
 			col:     longest + 3,
+		}
+		if len(paths) == 1 {
+			p = filepath.Base(p)
 		}
 		printer <- &msgInfo{
 			msg:   fmt.Sprintf(format, p),
