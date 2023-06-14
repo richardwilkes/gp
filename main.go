@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/richardwilkes/toolbox/cmdline"
 	"github.com/richardwilkes/toolbox/errs"
@@ -34,7 +36,7 @@ type msgInfo struct {
 
 func main() {
 	cmdline.AppVersion = "1.0"
-	cmdline.CopyrightYears = "2022"
+	cmdline.CopyrightStartYear = "2022"
 	cmdline.CopyrightHolder = "Richard A. Wilkes"
 	cmdline.AppIdentifier = "com.trollworks.gp"
 	cl := cmdline.New(true)
@@ -135,7 +137,12 @@ func processMsgs(wg *sync.WaitGroup, t *term.ANSI, printer chan *msgInfo) {
 		}
 		t.Foreground(m.color, m.style)
 		t.Position(m.row, m.col)
-		fmt.Print(m.msg)
+		msg := m.msg
+		if i := strings.Index(msg, "\n"); i != -1 {
+			msg = msg[:i]
+		}
+		fmt.Print(msg)
+		t.EraseLineToEnd()
 	}
 	t.Reset()
 	t.Position(maxRow+1, 1)
@@ -230,8 +237,30 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 	}
 }
 
-func (r *repo) git(args ...string) (string, error) {
-	c := exec.Command("git", args...)
+func (r *repo) git(args ...string) (result string, err error) {
+	for i := 0; i < 5; i++ {
+		if i != 0 {
+			time.Sleep(time.Second)
+		}
+		result, err = r.gitActual(args...)
+		if err == nil {
+			return result, nil
+		}
+		r.printer <- &msgInfo{
+			msg:   fmt.Sprintf("retry #%d for %s", i+1, err.Error()),
+			row:   r.row,
+			col:   r.col,
+			color: term.Magenta,
+			style: term.Bold,
+		}
+	}
+	return result, err
+}
+
+func (r *repo) gitActual(args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	c := exec.CommandContext(ctx, "git", args...)
 	c.Dir = r.path
 	c.Env = mergeEnvLists([]string{"PWD=" + r.path}, os.Environ())
 	rsp, err := c.CombinedOutput()
