@@ -35,7 +35,7 @@ type msgInfo struct {
 }
 
 func main() {
-	cmdline.AppVersion = "1.0"
+	cmdline.AppVersion = "1.1"
 	cmdline.CopyrightStartYear = "2022"
 	cmdline.CopyrightHolder = "Richard A. Wilkes"
 	cmdline.AppIdentifier = "com.trollworks.gp"
