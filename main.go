@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -33,6 +35,13 @@ type msgInfo struct {
 	color term.Color
 	style term.Style
 }
+
+var (
+	blue    = term.Blue
+	magenta = term.Magenta
+	red     = term.Red
+	black   = term.Black
+)
 
 func main() {
 	cmdline.AppVersion = "1.1"
@@ -80,6 +89,13 @@ func main() {
 	}
 	sort.Slice(list, func(i, j int) bool { return txt.NaturalLess(list[i], list[j], true) })
 
+	if runtime.GOOS == "darwin" {
+		if out, err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Output(); err == nil && bytes.HasPrefix(out, []byte("Dark")) {
+			black = term.White
+			blue = term.Cyan
+		}
+	}
+
 	var printerWG sync.WaitGroup
 	printer := make(chan *msgInfo, len(list))
 	printerWG.Add(1)
@@ -104,7 +120,7 @@ func main() {
 			msg:   fmt.Sprintf(format, p),
 			row:   i + 1,
 			col:   1,
-			color: term.White,
+			color: black,
 			style: term.Normal,
 		}
 		wg.Add(1)
@@ -156,7 +172,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 			msg:   "skipped due to error: " + err.Error(),
 			row:   r.row,
 			col:   r.col,
-			color: term.Red,
+			color: red,
 			style: term.Bold,
 		}
 		return
@@ -165,7 +181,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 		msg:   "[",
 		row:   r.row,
 		col:   r.col,
-		color: term.White,
+		color: black,
 		style: term.Normal,
 	}
 	r.col++
@@ -173,7 +189,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 		msg:   branch,
 		row:   r.row,
 		col:   r.col,
-		color: term.White,
+		color: black,
 		style: term.Bold,
 	}
 	r.col += len(branch)
@@ -181,7 +197,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 		msg:   "]",
 		row:   r.row,
 		col:   r.col,
-		color: term.White,
+		color: black,
 		style: term.Normal,
 	}
 	r.col += 2
@@ -191,7 +207,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 			msg:   "skipped due to error: " + err.Error(),
 			row:   r.row,
 			col:   r.col,
-			color: term.Red,
+			color: red,
 			style: term.Bold,
 		}
 		return
@@ -201,7 +217,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 			msg:   "skipped due to changes",
 			row:   r.row,
 			col:   r.col,
-			color: term.Magenta,
+			color: magenta,
 			style: term.Bold,
 		}
 		return
@@ -211,7 +227,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 			msg:   "failed to pull: " + err.Error(),
 			row:   r.row,
 			col:   r.col,
-			color: term.Red,
+			color: red,
 			style: term.Bold,
 		}
 		return
@@ -222,7 +238,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 				msg:   strings.TrimSpace(s),
 				row:   r.row,
 				col:   r.col,
-				color: term.Yellow,
+				color: magenta,
 				style: term.Bold,
 			}
 			return
@@ -232,7 +248,7 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 		msg:   "no changes",
 		row:   r.row,
 		col:   r.col,
-		color: term.Cyan,
+		color: blue,
 		style: term.Normal,
 	}
 }
@@ -250,7 +266,7 @@ func (r *repo) git(args ...string) (result string, err error) {
 			msg:   fmt.Sprintf("retry #%d for %s", i+1, err.Error()),
 			row:   r.row,
 			col:   r.col,
-			color: term.Magenta,
+			color: magenta,
 			style: term.Bold,
 		}
 	}
