@@ -1,57 +1,49 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/richardwilkes/toolbox/cmdline"
-	"github.com/richardwilkes/toolbox/errs"
-	"github.com/richardwilkes/toolbox/txt"
-	"github.com/richardwilkes/toolbox/xio"
-	"github.com/richardwilkes/toolbox/xio/term"
+	"github.com/richardwilkes/toolbox/v2/errs"
+	"github.com/richardwilkes/toolbox/v2/xflag"
+	"github.com/richardwilkes/toolbox/v2/xio"
+	"github.com/richardwilkes/toolbox/v2/xos"
+	"github.com/richardwilkes/toolbox/v2/xstrings"
+	"github.com/richardwilkes/toolbox/v2/xterm"
 	"github.com/yookoala/realpath"
 )
 
 type repo struct {
-	path    string
 	printer chan *msgInfo
+	path    string
 	row     int
 	col     int
 }
 
 type msgInfo struct {
 	msg   string
+	color string
 	row   int
 	col   int
-	color term.Color
-	style term.Style
 }
 
-var (
-	blue    = term.Blue
-	magenta = term.Magenta
-	red     = term.Red
-	black   = term.Black
-)
-
 func main() {
-	cmdline.AppVersion = "1.1"
-	cmdline.CopyrightStartYear = "2022"
-	cmdline.CopyrightHolder = "Richard A. Wilkes"
-	cmdline.AppIdentifier = "com.trollworks.gp"
-	cl := cmdline.New(true)
-	cl.Description = "Pulls unmodified git repos"
-	cl.UsageSuffix = "[zero or more paths to the parent directories of git repos]"
-	paths := cl.Parse(os.Args[1:])
+	xos.AppVersion = "1.2"
+	xos.CopyrightStartYear = "2022"
+	xos.CopyrightHolder = "Richard A. Wilkes"
+	xos.AppIdentifier = "com.trollworks.gp"
+	xflag.SetUsage(nil, "Pulls unmodified git repos", "[dir]...")
+	xflag.AddVersionFlags()
+	xflag.Parse()
+	paths := flag.Args()
 
 	// If no paths specified, use the current directory
 	if len(paths) == 0 {
@@ -87,19 +79,12 @@ func main() {
 			longest = len(p)
 		}
 	}
-	sort.Slice(list, func(i, j int) bool { return txt.NaturalLess(list[i], list[j], true) })
-
-	if runtime.GOOS == "darwin" {
-		if out, err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Output(); err == nil && bytes.HasPrefix(out, []byte("Dark")) {
-			black = term.White
-			blue = term.Cyan
-		}
-	}
+	sort.Slice(list, func(i, j int) bool { return xstrings.NaturalLess(list[i], list[j], true) })
 
 	var printerWG sync.WaitGroup
 	printer := make(chan *msgInfo, len(list))
 	printerWG.Add(1)
-	t := term.NewANSI(os.Stdout)
+	t := xterm.NewAnsiWriter(os.Stdout)
 	t.Clear()
 	go processMsgs(&printerWG, t, printer)
 
@@ -118,13 +103,12 @@ func main() {
 		}
 		printer <- &msgInfo{
 			msg:   fmt.Sprintf(format, p),
+			color: t.Kind().Reset(),
 			row:   i + 1,
 			col:   1,
-			color: black,
-			style: term.Normal,
 		}
 		wg.Add(1)
-		go processRepo(&wg, repos[i])
+		go processRepo(&wg, t.Kind(), repos[i])
 	}
 	wg.Wait()
 	close(printer)
@@ -144,91 +128,85 @@ func readDir(path string) []os.DirEntry {
 	return entries
 }
 
-func processMsgs(wg *sync.WaitGroup, t *term.ANSI, printer chan *msgInfo) {
+func processMsgs(wg *sync.WaitGroup, t *xterm.AnsiWriter, printer chan *msgInfo) {
 	defer wg.Done()
 	maxRow := 1
 	for m := range printer {
 		if maxRow < m.row {
 			maxRow = m.row
 		}
-		t.Foreground(m.color, m.style)
+		t.WriteString(m.color)
 		t.Position(m.row, m.col)
 		msg := m.msg
 		if i := strings.Index(msg, "\n"); i != -1 {
 			msg = msg[:i]
 		}
-		fmt.Print(msg)
+		t.WriteString(msg)
+		t.Reset()
 		t.EraseLineToEnd()
 	}
 	t.Reset()
 	t.Position(maxRow+1, 1)
 }
 
-func processRepo(wg *sync.WaitGroup, r *repo) {
+func processRepo(wg *sync.WaitGroup, k xterm.Kind, r *repo) {
 	defer wg.Done()
-	branch, err := r.git("branch", "--show-current")
+	branch, err := r.git(k, "branch", "--show-current")
 	if err != nil {
 		r.printer <- &msgInfo{
 			msg:   "skipped due to error: " + err.Error(),
+			color: k.Bold() + k.Red(),
 			row:   r.row,
 			col:   r.col,
-			color: red,
-			style: term.Bold,
 		}
 		return
 	}
 	r.printer <- &msgInfo{
 		msg:   "[",
+		color: k.Reset(),
 		row:   r.row,
 		col:   r.col,
-		color: black,
-		style: term.Normal,
 	}
 	r.col++
 	r.printer <- &msgInfo{
 		msg:   branch,
+		color: k.Bold(),
 		row:   r.row,
 		col:   r.col,
-		color: black,
-		style: term.Bold,
 	}
 	r.col += len(branch)
 	r.printer <- &msgInfo{
 		msg:   "]",
+		color: k.Reset(),
 		row:   r.row,
 		col:   r.col,
-		color: black,
-		style: term.Normal,
 	}
 	r.col += 2
 	var out string
-	if out, err = r.git("status", "--porcelain"); err != nil {
+	if out, err = r.git(k, "status", "--porcelain"); err != nil {
 		r.printer <- &msgInfo{
 			msg:   "skipped due to error: " + err.Error(),
+			color: k.Bold() + k.Red(),
 			row:   r.row,
 			col:   r.col,
-			color: red,
-			style: term.Bold,
 		}
 		return
 	}
 	if out != "" {
 		r.printer <- &msgInfo{
 			msg:   "skipped due to changes",
+			color: k.Bold() + k.Magenta(),
 			row:   r.row,
 			col:   r.col,
-			color: magenta,
-			style: term.Bold,
 		}
 		return
 	}
-	if out, err = r.git("pull"); err != nil {
+	if out, err = r.git(k, "pull"); err != nil {
 		r.printer <- &msgInfo{
 			msg:   "failed to pull: " + err.Error(),
+			color: k.Bold() + k.Red(),
 			row:   r.row,
 			col:   r.col,
-			color: red,
-			style: term.Bold,
 		}
 		return
 	}
@@ -236,24 +214,22 @@ func processRepo(wg *sync.WaitGroup, r *repo) {
 		if strings.Contains(s, " changed, ") {
 			r.printer <- &msgInfo{
 				msg:   strings.TrimSpace(s),
+				color: k.Bold() + k.Magenta(),
 				row:   r.row,
 				col:   r.col,
-				color: magenta,
-				style: term.Bold,
 			}
 			return
 		}
 	}
 	r.printer <- &msgInfo{
 		msg:   "no changes",
+		color: k.Blue(),
 		row:   r.row,
 		col:   r.col,
-		color: blue,
-		style: term.Normal,
 	}
 }
 
-func (r *repo) git(args ...string) (result string, err error) {
+func (r *repo) git(k xterm.Kind, args ...string) (result string, err error) {
 	for i := 0; i < 5; i++ {
 		if i != 0 {
 			time.Sleep(time.Second)
@@ -264,10 +240,9 @@ func (r *repo) git(args ...string) (result string, err error) {
 		}
 		r.printer <- &msgInfo{
 			msg:   fmt.Sprintf("retry #%d for %s", i+1, err.Error()),
+			color: k.Bold() + k.Magenta(),
 			row:   r.row,
 			col:   r.col,
-			color: magenta,
-			style: term.Bold,
 		}
 	}
 	return result, err
