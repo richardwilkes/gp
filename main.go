@@ -36,7 +36,7 @@ type msgInfo struct {
 }
 
 func main() {
-	xos.AppVersion = "1.2"
+	xos.AppVersion = "1.2.1"
 	xos.CopyrightStartYear = "2022"
 	xos.CopyrightHolder = "Richard A. Wilkes"
 	xos.AppIdentifier = "com.trollworks.gp"
@@ -83,10 +83,9 @@ func main() {
 
 	var printerWG sync.WaitGroup
 	printer := make(chan *msgInfo, len(list))
-	printerWG.Add(1)
 	t := xterm.NewAnsiWriter(os.Stdout)
 	t.Clear()
-	go processMsgs(&printerWG, t, printer)
+	printerWG.Go(func() { processMsgs(t, printer) })
 
 	var wg sync.WaitGroup
 	repos := make([]*repo, len(list))
@@ -107,8 +106,7 @@ func main() {
 			row:   i + 1,
 			col:   1,
 		}
-		wg.Add(1)
-		go processRepo(&wg, t.Kind(), repos[i])
+		wg.Go(func() { processRepo(t.Kind(), repos[i]) })
 	}
 	wg.Wait()
 	close(printer)
@@ -128,8 +126,7 @@ func readDir(path string) []os.DirEntry {
 	return entries
 }
 
-func processMsgs(wg *sync.WaitGroup, t *xterm.AnsiWriter, printer chan *msgInfo) {
-	defer wg.Done()
+func processMsgs(t *xterm.AnsiWriter, printer chan *msgInfo) {
 	maxRow := 1
 	for m := range printer {
 		if maxRow < m.row {
@@ -149,8 +146,7 @@ func processMsgs(wg *sync.WaitGroup, t *xterm.AnsiWriter, printer chan *msgInfo)
 	t.Position(maxRow+1, 1)
 }
 
-func processRepo(wg *sync.WaitGroup, k xterm.Kind, r *repo) {
-	defer wg.Done()
+func processRepo(k xterm.Kind, r *repo) {
 	branch, err := r.git(k, "branch", "--show-current")
 	if err != nil {
 		r.printer <- &msgInfo{
