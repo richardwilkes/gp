@@ -206,7 +206,7 @@ func processRepo(k xterm.Kind, r *repo) {
 		}
 		return
 	}
-	for _, s := range strings.Split(out, "\n") {
+	for s := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(s, " changed, ") {
 			r.printer <- &msgInfo{
 				msg:   strings.TrimSpace(s),
@@ -226,7 +226,7 @@ func processRepo(k xterm.Kind, r *repo) {
 }
 
 func (r *repo) git(k xterm.Kind, args ...string) (result string, err error) {
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if i != 0 {
 			time.Sleep(time.Second)
 		}
